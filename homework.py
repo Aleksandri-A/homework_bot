@@ -1,14 +1,13 @@
+import logging
 import os
 import sys
-import logging
-import requests
 import time
-import telegram
-
-from dotenv import load_dotenv
 from http import HTTPStatus
-from sorcery import dict_of
 
+import requests
+import telegram
+from dotenv import load_dotenv
+from sorcery import dict_of
 
 load_dotenv()
 
@@ -44,7 +43,15 @@ HOMEWORK_VERDICTS = {
 }
 
 
-class HttpException(Exception):
+class HttpStatusException(Exception):
+    """Не получен ожидаемый код статуса."""
+
+    pass
+
+
+class ApiResponceException(Exception):
+    """Ошибка получения ответа с API."""
+
     pass
 
 
@@ -73,17 +80,32 @@ def send_message(bot, message):
 def get_api_answer(timestamp):
     """Делает запрос к единственному эндпоинту API-сервиса."""
     PARAMS = {'from_date': timestamp}
-    response = requests.get(
-        ENDPOINT,
-        headers=HEADERS,
-        params=PARAMS
-    )
-    if response.status_code != HTTPStatus.OK:
-        status_code = response.status_code
-        raise HttpException(f'Неверный код статуса: {status_code}')
-    logger.info('Отправка запроса успешно завершена. '
-                'Получен корректный ответ.')
-    return response.json()
+    try:
+        response = requests.get(
+            ENDPOINT,
+            headers=HEADERS,
+            params=PARAMS
+        )
+        if response.status_code != HTTPStatus.OK:
+            raise HttpStatusException(
+                f'Неверный код статуса: {response.status_code}'
+            )
+        # logger.info('Отправка запроса успешно завершена. '
+        #             'Получен корректный ответ.')
+        result = response.json()
+        if result.get('code') == 'UncnownError':
+            raise ApiResponceException(
+                f'API вернул ошибку: {result.get("error")}'
+            )
+        if result.get('code') == 'Not_authenticated':
+            raise ApiResponceException(
+                f'API вернул ошибку: {result.get("error")}'
+            )
+    except Exception as error:
+        raise ApiResponceException(
+            f'Получен код 200, но JSON не может быть обработан: {error}'
+        )
+    return result
 
 
 def check_response(response):
@@ -116,12 +138,15 @@ def parse_status(homework):
         raise TypeError(
             'Некорректный ответ от API! Ответ не является словарем'
         )
-    homework_name = homework.get('homework_name')
     status = homework.get('status')
-    if homework_name is None or status is None:
+    if status is None or status not in ['approved', 'reviewing', 'rejected']:
         raise TypeError(
-            f'Ошибка получения данных homework_name:'
-            f'{homework_name} и status: {status}'
+            f'Ошибка получения данных status: {status}'
+        )
+    homework_name = homework.get('homework_name')
+    if homework_name is None:
+        raise TypeError(
+            f'Ошибка получения данных homework_name: {homework_name}'
         )
     verdict = HOMEWORK_VERDICTS[status]
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
