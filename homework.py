@@ -112,7 +112,7 @@ def get_api_answer(timestamp):
         )
     except Exception as error:
         raise ApiResponseException(
-            f'Ошибка получения ответа при обращении к {ENDPOINT}: {error}'
+            f'Ошибка при обращении к {ENDPOINT}: {error}'
         )
 
 
