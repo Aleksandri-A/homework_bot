@@ -3,11 +3,10 @@ import os
 import sys
 import time
 from http import HTTPStatus
-
+from json.decoder import JSONDecodeError
 import requests
 import telegram
 from dotenv import load_dotenv
-from sorcery import dict_of
 
 load_dotenv()
 
@@ -49,7 +48,7 @@ class HttpStatusException(Exception):
     pass
 
 
-class ApiResponceException(Exception):
+class ApiResponseException(Exception):
     """Ошибка получения ответа с API."""
 
     pass
@@ -57,11 +56,18 @@ class ApiResponceException(Exception):
 
 def check_tokens():
     """Проверка доступности переменных окружения."""
-    dict = dict_of(PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID)
-    for i in dict:
-        if dict[i] is None:
-            logger.critical(f'Переменная {i} не задана.')
-            raise ValueError('Учетные данные не были предоставлены.')
+    tokens = {
+        "PRACTICUM_TOKEN": PRACTICUM_TOKEN,
+        "TELEGRAM_TOKEN": TELEGRAM_TOKEN,
+        "TELEGRAM_CHAT_ID": TELEGRAM_CHAT_ID,
+    }
+    is_error = False
+    for token_name, token in tokens.items():
+        if token is None:
+            logger.critical(f'Переменная {token_name} не задана.')
+            is_error = True
+    if is_error:
+        raise ValueError('Учетные данные не были предоставлены.')
 
 
 def send_message(bot, message):
@@ -90,22 +96,24 @@ def get_api_answer(timestamp):
             raise HttpStatusException(
                 f'Неверный код статуса: {response.status_code}'
             )
-        # logger.info('Отправка запроса успешно завершена. '
-        #             'Получен корректный ответ.')
         result = response.json()
-        if result.get('code') == 'UncnownError':
-            raise ApiResponceException(
+        if result.get('code') == 'UnknownError':
+            raise ApiResponseException(
                 f'API вернул ошибку: {result.get("error")}'
             )
         if result.get('code') == 'Not_authenticated':
-            raise ApiResponceException(
+            raise ApiResponseException(
                 f'API вернул ошибку: {result.get("error")}'
             )
-    except Exception as error:
-        raise ApiResponceException(
+        return result
+    except JSONDecodeError as error:
+        raise ApiResponseException(
             f'Получен код 200, но JSON не может быть обработан: {error}'
         )
-    return result
+    except Exception as error:
+        raise ApiResponseException(
+            f'Ошибка получения ответа при обращении к {ENDPOINT}: {error}'
+        )
 
 
 def check_response(response):
@@ -139,7 +147,7 @@ def parse_status(homework):
             'Некорректный ответ от API! Ответ не является словарем'
         )
     status = homework.get('status')
-    if status is None or status not in ['approved', 'reviewing', 'rejected']:
+    if status is None or status not in HOMEWORK_VERDICTS.keys():
         raise TypeError(
             f'Ошибка получения данных status: {status}'
         )
